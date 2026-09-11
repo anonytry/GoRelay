@@ -1,94 +1,40 @@
-# gofile-downloader
+# GoRelay
 
-Download files from https://gofile.io
+GoFile → SourceForge relay, fully automated via GitHub Actions.
+
+## Use it
+
+1. Fork this repo.
+2. Add secrets. In your fork: **Settings → Secrets and variables → Actions →
+   New repository secret**:
+   - `SF_SSH_KEY` (required) — passphrase-less SourceForge SSH **private** key
+     (whole key, multiline, with BEGIN/END lines). Public half goes to your
+     SourceForge account (Account Services → SSH Keys).
+     **Note:** It must be an SSH private key, not SourceForge password.
+   - `GF_TOKEN` (optional) — only if you hit GoFile download limits
+     (recommended for files 4GB+).
+3. **Actions → GoFile to SourceForge relay → Run workflow** with:
+
+| Input | Default |
+|---|---|
+| `gofile_url` | — |
+| `gofile_password` | empty |
+| `sf_username` | `topexguy` |
+| `sf_project` | `skyroms` |
+| `sf_remote_path` | project root |
+
+Flow: install `uv` → download from GoFile → verify md5 vs GoFile API →
+`scp` to `/home/frs/project/<sf_project>/<sf_remote_path>`.
+
+## Local use
+
+```sh
+uv run gofile-downloader.py https://gofile.io/d/contentid [password]
+uv run verify-gofile.py https://gofile.io/d/contentid [password]
+```
+
+Env vars (`GF_TOKEN`, `GF_DOWNLOAD_DIR`, `GF_INTERACTIVE`, ...) can go in a `.env` file.
 
 ---
 
-#### Requirements
-
-- Python version 3.10 or newer.
-- **[uv](https://docs.astral.sh/uv/getting-started/installation/)**: A blazing-fast Python package and project manager. (If you have pip installed, you can use it to install uv: `pip install uv`)
-
----
-
-#### Dependencies
-
-With `uv`, you don't need to manually install dependencies or manage virtual environments. The `uv run` command handles everything automatically on the fly.
-
-_(Optional: If you just want to install the dependencies without running the script, use `uv sync`)_
-
----
-
-#### Usage
-
-```
-uv run gofile-downloader.py https://gofile.io/d/contentid
-```
-
-If it has password:
-
-```
-uv run gofile-downloader.py https://gofile.io/d/contentid password
-```
-
-If you have a text file with multiple urls:
-
-```
-https://gofile.io/d/contentid1
-https://gofile.io/d/contentid2
-https://gofile.io/d/contentid3
-https://gofile.io/d/contentid4
-```
-
-```
-uv run gofile-downloader.py my-urls.txt
-```
-
-If you specify a password, this password will be used for ALL urls provided in the text file:
-
-```
-uv run gofile-downloader.py my-urls.txt password
-```
-
-It's possible to provide per link password, just don't pass the password altogether, provide the password in the text file separated by a space.
-
-```
-https://gofile.io/d/contentid1 password1
-https://gofile.io/d/contentid2
-https://gofile.io/d/contentid3
-https://gofile.io/d/contentid4 password4
-```
-
----
-
-#### Environment Variables
-
-The script behavior can be customized using environment variables. Instead of passing them via your terminal (which changes depending on your OS), you can simply create a `.env` file in the root directory of this project. `uv` will load them automatically.
-
-Create a `.env` file and set your desired configurations:
-
-```env
-# Specify where to download to (the path must exist already)
-GF_DOWNLOAD_DIR="./downloads"
-
-# Toggle manual file selection to download (1 for True)
-GF_INTERACTIVE="1"
-
-# Specify a specific account token
-GF_TOKEN="your_account_token_here"
-
-# Configure the maximum number of concurrent downloads
-GF_MAX_CONCURRENT_DOWNLOADS="5"
-
-# Configure the number of retries on timeout
-GF_MAX_RETRIES="5"
-
-# Configure a timeout for connections (in seconds)
-GF_TIMEOUT="15.0"
-
-# Configure the number of bytes read per chunk
-GF_CHUNK_SIZE="2097152"
-
-# Specify browser user agent (defaults Mozilla/5.0)
-GF_USERAGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64)..."
-```
+Fork of [ltsdw/gofile-downloader](https://github.com/ltsdw/gofile-downloader).

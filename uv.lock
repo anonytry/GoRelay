@@ -117,8 +117,7 @@ wheels = [
 ]
 
 [[package]]
-name = "gofile-downloader"
-version = "0.1.0"
+name = "gorelay"
 source = { virtual = "." }
 dependencies = [
     { name = "requests" },

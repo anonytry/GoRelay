@@ -1,0 +1,127 @@
+name: GoFile to SourceForge relay
+
+on:
+  workflow_dispatch:
+    inputs:
+      gofile_url:
+        description: "GoFile link to download (https://gofile.io/d/xxxxxxxx)"
+        required: true
+      gofile_password:
+        description: "GoFile password (optional)"
+        required: false
+        default: ""
+      sf_username:
+        description: "SourceForge username"
+        required: false
+        default: "topexguy"
+      sf_project:
+        description: "SourceForge project UNIX name"
+        required: false
+        default: "skyroms"
+      sf_remote_path:
+        description: "Remote path inside the project (empty = project root)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  SF_HOST: frs.sourceforge.net
+  GF_DOWNLOAD_DIR: "${{ github.workspace }}/downloads"
+
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1080
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Download from GoFile
+        env:
+          GF_TOKEN: ${{ secrets.GF_TOKEN }}
+        run: |
+          URL="${{ inputs.gofile_url }}"
+          PASS="${{ inputs.gofile_password }}"
+          if [ -n "${PASS}" ]; then
+            uv run gofile-downloader.py "${URL}" "${PASS}"
+          else
+            uv run gofile-downloader.py "${URL}"
+          fi
+
+          if [ -z "$(find "${GF_DOWNLOAD_DIR}" -mindepth 1 -print -quit)" ]; then
+            echo "::error::GoFile download produced no files."
+            exit 1
+          fi
+
+      - name: Verify GoFile checksums
+        env:
+          GF_TOKEN: ${{ secrets.GF_TOKEN }}
+        run: |
+          URL="${{ inputs.gofile_url }}"
+          PASS="${{ inputs.gofile_password }}"
+          if [ -n "${PASS}" ]; then
+            uv run verify-gofile.py "${URL}" "${PASS}"
+          else
+            uv run verify-gofile.py "${URL}"
+          fi
+
+      - name: Setup SF SSH key + known_hosts
+        env:
+          SF_SSH_KEY: ${{ secrets.SF_SSH_KEY }}
+        run: |
+          if [ -z "${SF_SSH_KEY}" ]; then
+            echo "::error::Secret SF_SSH_KEY is missing. Add your SourceForge SSH private key to repo secrets first."
+            exit 1
+          fi
+          install -d -m 700 ~/.ssh
+          # Fix common paste artefacts: literal "\n" -> real newlines, strip CRLF.
+          KEY="${SF_SSH_KEY//\\\\n/$'\n'}"
+          printf '%s\n' "${KEY}" | tr -d '\r' > ~/.ssh/id_sourceforge
+          chmod 600 ~/.ssh/id_sourceforge
+          ssh-keyscan -H "${SF_HOST}" >> ~/.ssh/known_hosts 2>/dev/null
+          if ! ssh-keygen -y -f ~/.ssh/id_sourceforge >/dev/null 2>&1; then
+            echo "::error::SF_SSH_KEY is not a valid private key (error in libcrypto = unreadable)."
+            echo "::error::Paste the WHOLE key with real line breaks, e.g. output of: cat ~/.ssh/id_ed25519"
+            echo "::error::No quotes around it, no extra spaces, passphrase-less, OpenSSH or PEM format."
+            exit 1
+          fi
+          echo "SF_SSH_KEY looks valid: $(ssh-keygen -lf ~/.ssh/id_sourceforge | awk '{print $1, $2}')"
+
+      - name: Upload to SourceForge
+        env:
+          SF_USER: ${{ inputs.sf_username }}
+          SF_PROJECT: ${{ inputs.sf_project }}
+          SF_PATH: ${{ inputs.sf_remote_path }}
+        run: |
+          set -euo pipefail
+
+          REMOTE="/home/frs/project/${SF_PROJECT}"
+          if [ -n "${SF_PATH}" ]; then
+            REMOTE="${REMOTE}/${SF_PATH}"
+          fi
+
+          CONTENT_DIR="$(find "${GF_DOWNLOAD_DIR}" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+          if [ -z "${CONTENT_DIR}" ]; then
+            echo "::error::Nothing downloaded under ${GF_DOWNLOAD_DIR}."
+            exit 1
+          fi
+
+          echo "Ensuring remote dir exists: ${REMOTE}"
+          # 'minus mkdir' ignores the error if the directory already exists.
+          printf -- '-mkdir %s\n' "${REMOTE}" | sftp -b - -i ~/.ssh/id_sourceforge "${SF_USER}@${SF_HOST}" || true
+
+          echo "Uploading ${CONTENT_DIR}/. -> ${SF_USER}@${SF_HOST}:${REMOTE}/"
+          scp -r -i ~/.ssh/id_sourceforge "${CONTENT_DIR}/." "${SF_USER}@${SF_HOST}:${REMOTE}/"
+
+          echo "DONE: scp ${CONTENT_DIR}/. ${SF_USER}@${SF_HOST}:${REMOTE}/"
+
+      - name: Cleanup downloaded files
+        if: always()
+        run: |
+          rm -rf "${GF_DOWNLOAD_DIR}"
+          echo "Cleaned ${GF_DOWNLOAD_DIR}"
